@@ -1,3 +1,7 @@
+//TODO:
+//add length to struct
+//make it so that create apple uses the struct
+
 #include <ncurses.h>
 #include <stdlib.h>
 #include <time.h>
@@ -29,21 +33,49 @@ void * handlesnake(void *);
 void * checkinput(void *);
 bool placesnake(void *, int *, int *);
 void getcurryx(int, int *, int *, void *);
+void score(int, void *);
 
-
-int main(int arc, char **argv)
+int main(int argc, char *argv[])
 {
+    int x,y, i, j;
+    //amount of time in nanoseconds the each frame sleeps
+    srand(time(NULL));
+    long time = 35000000;
+    while ((i = getopt(argc, argv, ":m:at:hr")) != -1 )
+    {
+        switch(i)
+        {
+            case 'h':
+            printf("-h\t[h]elp (display this menu)\n-m\ttime in [m]icroseconds\n-r\t[r]eset highscore\n-t\t[t]ime in nanoseconds\nrun with no args for default value\n");
+            return 0;
+            break;
+            case 'm':
+            time = atol(optarg)*1000L;
+            break;
+            case 'r':
+            FILE *reset = fopen("/tmp/highscore", "w");
+            fclose(reset);
+            return 0;
+            case 't':
+            time = atol(optarg);
+            break;
+            case '?':
+            printf("unkown option %c\n-h for help\n", optopt);
+            return 1;
+            break;
+            case ':':
+            printf("option %c requires a value\n-h for help\n", optopt);
+            return 2;
+            break;
+        }
+    }
+
     initscr();
+    use_default_colors();
     noecho();
     curs_set(0);
     keypad(stdscr, true);
-    srand(time(NULL));
     cbreak();
-
-    int x,y;
-    //amount of time in nanoseconds the each frame sleeps
-    long time = 35000000;
-    
 
     getmaxyx(stdscr, y, x);
     //check size of terminal, if it's to small send error message
@@ -51,7 +83,7 @@ int main(int arc, char **argv)
     {
         endwin();
         printf("terminal size to small. Try resizing.\n");
-        return 1;
+        return 3;
     }
 
 // check if the terminal supports colours
@@ -59,24 +91,24 @@ int main(int arc, char **argv)
     {
         endwin();
         printf("Your terminal does not support color\n");
-        return 2;
+        return 4;
     }
     start_color();
 
     if (can_change_color())
     {
         init_color(COLOR_GREEN, 200, 700, 300);
-        init_color(COLOR_BLACK, 200, 0, 150);
         init_color(COLOR_WHITE, 800, 800, 800);
     }
+
     //init colours
-	init_pair(def, COLOR_WHITE, COLOR_BLACK);
-    init_pair(snake, COLOR_GREEN, COLOR_BLACK);
-    init_pair(apple, COLOR_RED, COLOR_BLACK);
+	init_pair(def, COLOR_WHITE, -1);
+    init_pair(snake, COLOR_GREEN, -1);
+    init_pair(apple, COLOR_RED, -1);
 	attron(COLOR_PAIR(def));
 
     //  create borders (sloppily)
-    int i, j;
+    
     move(0,0);
     for (j=0; j<2; j++)
     {
@@ -88,9 +120,11 @@ int main(int arc, char **argv)
         for(i=y; i>0; i--) mvaddch(i, j*(x-1), '#');
         move(y-1,x-1);
     }
-    refresh();
     attroff(COLOR_PAIR(def));
 
+    struct handlesnakestruct tempvar;
+    tempvar.x=x;
+    tempvar.y=y;
     //holder of all possible positions
     // grid which is positioned as following:
     //
@@ -104,10 +138,10 @@ int main(int arc, char **argv)
     //to easily be able to see age of position
     short * age = calloc(y*x,sizeof(short));
 
-    
-    initsnake( age, positions, y, x);
-
     createapple(&applepos, positions, y, x);
+    initsnake( age, positions, y, x);
+    
+    score(5, (void *) &tempvar);
 
     runsnake(&time, &applepos, positions, age, y, x);
     free(positions);
@@ -136,8 +170,6 @@ bool initsnake(short* age, short * positions, int y, int x)
     }    
     
     mvaddch(y/2, x/2-1, '<');
-
-    refresh();
     attroff(COLOR_PAIR(snake));
 
     return 1;
@@ -228,7 +260,10 @@ void * handlesnake(void * inputs)
 
     
 
-    slp.tv_nsec=*inps->time;
+    slp.tv_nsec=(*inps->time)%1000000000;
+    slp.tv_sec=(*inps->time-slp.tv_nsec)/1000000000;
+
+
     for EVER
     {
         for (i=0; i < area; i++)
@@ -422,6 +457,7 @@ bool placesnake(void *inputs, int *head, int *length)
     {
         ++*length;
         createapple(inps->applepos,inps->positions,inps->y,inps->x);
+        score(*length, (void *) inps);
     }
     else if (inps->age[*head] > 0)
     {
@@ -439,4 +475,31 @@ void getcurryx(int pos, int *printy, int *printx, void *inputs)
     struct handlesnakestruct *inps = inputs;
     (*printx) = 1+(pos%(inps->x-2));
     (*printy) = 1+(pos-(pos%(inps->x-2)))/(inps->x-2);
+}
+
+
+void score(int length, void *inputs)
+{
+    struct handlesnakestruct *inps = inputs;
+    //hiscore storage file ptr
+    FILE *hiSt;
+    char buff[16];
+    hiSt = fopen("/tmp/highscore","r");
+    if (hiSt != NULL)
+    {
+        fgets(buff, 16, hiSt);
+        fclose(hiSt);
+    }
+    int hiscore = atoi(buff);
+    //starting length of snake is 5
+    if (hiscore < (length-5))
+    {
+        hiSt = fopen("/tmp/highscore", "w");
+        fprintf(hiSt,"%d",(length-5));
+        fclose(hiSt);
+        hiscore++;
+    }
+    
+    mvprintw(inps->y-1, 1, "  HiScore: %d  Current Score:  %d  ", hiscore, (length-5));
+    refresh();
 }
